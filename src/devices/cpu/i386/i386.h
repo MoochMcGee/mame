@@ -1491,13 +1491,15 @@ protected:
 };
 
 
-class pentium_pro_device : public pentium_device
+class pentium_pro_device : public i386_device
 {
 public:
 	// construction/destruction
 	pentium_pro_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
 protected:
+	pentium_pro_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock);
+
 	virtual void device_start() override;
 	virtual void device_reset() override;
 };
@@ -1515,7 +1517,7 @@ protected:
 };
 
 
-class pentium2_device : public pentium_device
+class pentium2_device : public pentium_pro_device
 {
 public:
 	// construction/destruction
@@ -1527,7 +1529,7 @@ protected:
 };
 
 
-class pentium3_device : public pentium_device
+class pentium3_device : public pentium_pro_device
 {
 public:
 	// construction/destruction
@@ -1539,7 +1541,7 @@ protected:
 };
 
 
-class pentium4_device : public pentium_device
+class pentium4_device : public pentium_pro_device
 {
 public:
 	// construction/destruction

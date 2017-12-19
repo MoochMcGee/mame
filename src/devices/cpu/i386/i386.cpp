@@ -99,8 +99,15 @@ mediagx_device::mediagx_device(const machine_config &mconfig, const char *tag, d
 {
 }
 
+//Pentium Pro and up have a 36-bit address bus.
 pentium_pro_device::pentium_pro_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: pentium_device(mconfig, PENTIUM_PRO, tag, owner, clock)
+	: i386_device(mconfig, PENTIUM_PRO, tag, owner, clock, 32, 32, 32)
+{
+}
+
+//Pentium Pro and up have a 36-bit address bus.
+pentium_pro_device::pentium_pro_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock)
+	: i386_device(mconfig, type, tag, owner, clock, 32, 32, 32)
 {
 }
 
@@ -112,21 +119,21 @@ pentium_mmx_device::pentium_mmx_device(const machine_config &mconfig, const char
 }
 
 pentium2_device::pentium2_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: pentium_device(mconfig, PENTIUM2, tag, owner, clock)
+	: pentium_pro_device(mconfig, PENTIUM2, tag, owner, clock)
 {
 	// 64 dtlb small, 8 dtlb large, 32 itlb small, 2 itlb large
 	set_vtlb_dynamic_entries(96);
 }
 
 pentium3_device::pentium3_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: pentium_device(mconfig, PENTIUM3, tag, owner, clock)
+	: pentium_pro_device(mconfig, PENTIUM3, tag, owner, clock)
 {
 	// 64 dtlb small, 8 dtlb large, 32 itlb small, 2 itlb large
 	set_vtlb_dynamic_entries(96);
 }
 
 pentium4_device::pentium4_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: pentium_device(mconfig, PENTIUM4, tag, owner, clock)
+	: pentium_pro_device(mconfig, PENTIUM4, tag, owner, clock)
 {
 	// 128 dtlb, 64 itlb
 	set_vtlb_dynamic_entries(196);
