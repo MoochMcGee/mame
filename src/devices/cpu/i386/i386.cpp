@@ -52,6 +52,7 @@ i386_device::i386_device(const machine_config &mconfig, device_type type, const 
 	, device_vtlb_interface(mconfig, *this, AS_PROGRAM)
 	, m_program_config("program", ENDIANNESS_LITTLE, program_data_width, program_addr_width, 0)
 	, m_io_config("io", ENDIANNESS_LITTLE, io_data_width, 16, 0)
+	, m_dr_breakpoints{nullptr, nullptr, nullptr, nullptr}
 	, m_smiact(*this)
 	, m_ferr_handler(*this)
 {
@@ -737,7 +738,7 @@ void i386_device::i386_trap(int irq, int irq_gate, int trap_level)
 	if( !(PROTECTED_MODE) )
 	{
 		/* 16-bit */
-		PUSH16(oldflags & 0xffff );
+		PUSH16((oldflags & 0xffff) | (1 << 16)); //Faults always have the RF bit set in the saved flags register.
 		PUSH16(m_sreg[CS].selector );
 		if(irq == 3 || irq == 4 || irq == 9 || irq_gate == 1)
 			PUSH16(m_eip );
@@ -1067,7 +1068,7 @@ void i386_device::i386_trap(int irq, int irq_gate, int trap_level)
 			// this is ugly but the alternative is worse
 			if(type != 0x0e && type != 0x0f)  // if not 386 interrupt or trap gate
 			{
-				PUSH16(oldflags & 0xffff );
+				PUSH16((oldflags & 0xffff) | (1 << 16) ); //Faults always have the RF bit set in the saved flags register.
 				PUSH16(m_sreg[CS].selector );
 				if(irq == 3 || irq == 4 || irq == 9 || irq_gate == 1)
 					PUSH16(m_eip );
@@ -1076,7 +1077,7 @@ void i386_device::i386_trap(int irq, int irq_gate, int trap_level)
 			}
 			else
 			{
-				PUSH32(oldflags & 0x00ffffff );
+				PUSH32((oldflags & 0x00ffffff) | (1 << 16) ); //Faults always have the RF bit set in the saved flags register.
 				PUSH32SEG(m_sreg[CS].selector );
 				if(irq == 3 || irq == 4 || irq == 9 || irq_gate == 1)
 					PUSH32(m_eip );
@@ -1239,6 +1240,8 @@ void i386_device::i286_task_switch(uint16_t selector, uint8_t nested)
 	CHANGE_PC(m_eip);
 
 	m_CPL = (m_sreg[SS].flags >> 5) & 3;
+
+	m_auto_clear_RF = false;
 //  printf("286 Task Switch from selector %04x to %04x\n",old_task,selector);
 }
 
@@ -1357,6 +1360,13 @@ void i386_device::i386_task_switch(uint16_t selector, uint8_t nested)
 	CHANGE_PC(m_eip);
 
 	m_CPL = (m_sreg[SS].flags >> 5) & 3;
+
+	int t_bit = READ32(tss+0x64) & 1;
+	if(t_bit) m_dr[6] |= (1 << 15); //If the T bit of the new TSS is set, set the BT bit of DR6.
+
+	m_dr[7] &= ~(0x155); //Clear all of the local enable bits from DR7.
+
+	m_auto_clear_RF = false;
 //  printf("386 Task Switch from selector %04x to %04x\n",old_task,selector);
 }
 
@@ -3202,7 +3212,6 @@ void i386_device::i386_postload()
 
 void i386_device::i386_common_init()
 {
-	int i, j;
 	static const int regs8[8] = {AL,CL,DL,BL,AH,CH,DH,BH};
 	static const int regs16[8] = {AX,CX,DX,BX,SP,BP,SI,DI};
 	static const int regs32[8] = {EAX,ECX,EDX,EBX,ESP,EBP,ESI,EDI};
@@ -3211,16 +3220,16 @@ void i386_device::i386_common_init()
 
 	build_cycle_table();
 
-	for( i=0; i < 256; i++ ) {
+	for(int i=0; i < 256; i++ ) {
 		int c=0;
-		for( j=0; j < 8; j++ ) {
+		for(int j=0; j < 8; j++ ) {
 			if( i & (1 << j) )
 				c++;
 		}
 		i386_parity_table[i] = ~(c & 0x1) & 0x1;
 	}
 
-	for( i=0; i < 256; i++ ) {
+	for(int i=0; i < 256; i++ ) {
 		i386_MODRM_table[i].reg.b = regs8[(i >> 3) & 0x7];
 		i386_MODRM_table[i].reg.w = regs16[(i >> 3) & 0x7];
 		i386_MODRM_table[i].reg.d = regs32[(i >> 3) & 0x7];
@@ -3305,6 +3314,7 @@ void i386_device::i386_common_init()
 
 	save_item(NAME(m_CPL));
 
+	save_item(NAME(m_auto_clear_RF));
 	save_item(NAME(m_performed_intersegment_jump));
 
 	save_item(NAME(m_cr));
@@ -3345,6 +3355,61 @@ void i386_device::i386_common_init()
 	m_ferr_handler(0);
 
 	set_icountptr(m_cycles);
+
+	for(int i = 0; i < 4; i++)
+	{
+		m_notifiers[i] = m_program->add_change_notifier([this, i](read_or_write mode)
+		{
+			int dr_enabled = (m_dr[7] & (1 << (i << 1))) || (m_dr[7] & (1 << ((i << 1) + 1)));
+			int breakpoint_type = (m_dr[7] >> ((i << 2) + 16)) & 3;
+			int breakpoint_length = (m_dr[7] >> ((i << 2) + 16 + 2)) & 3;
+			uint32_t phys_addr = m_dr[i];
+			uint32_t error;
+			phys_addr = translate_address(m_CPL, TRANSLATE_READ, &phys_addr, &error);
+			phys_addr &= ~3; //According to CUP386, data breakpoints are only reliable on dword-aligned addresses, so align this to a dword.
+			uint32_t true_mask = 0;
+			switch(breakpoint_length)
+			{
+				case 0: true_mask = 0xff; break;
+				case 1: true_mask = 0xffff; break;
+				case 3: true_mask = 0xffffffff; break;
+			}
+			if(true_mask == 0)
+			{
+				logerror("i386: Unknown breakpoint length value\n");
+			}
+			if(dr_enabled)
+			{
+				if(m_dr_breakpoints[i]) m_dr_breakpoints[i]->remove();
+				if(breakpoint_type == 1) m_dr_breakpoints[i] = m_program->install_write_tap(phys_addr, phys_addr + 3, "i386_debug_write_breakpoint",
+				[&, i, true_mask](offs_t offset, u32& data, u32 mem_mask)
+				{
+					if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
+					{
+						m_dr[6] |= 1 << i;
+						i386_trap(1,0,0);
+					}
+				}, m_dr_breakpoints[i]);
+				else if(breakpoint_type == 3) m_dr_breakpoints[i] = m_program->install_readwrite_tap(phys_addr, phys_addr + 3, "i386_debug_readwrite_breakpoint",
+				[&, i, true_mask](offs_t offset, u32& data, u32 mem_mask)
+				{
+					if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
+					{
+						m_dr[6] |= 1 << i;
+						i386_trap(1,0,0);
+					}
+				},
+				[&, i, true_mask](offs_t offset, u32& data, u32 mem_mask)
+				{
+					if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
+					{
+						m_dr[6] |= 1 << i;
+						i386_trap(1,0,0);
+					}
+				}, m_dr_breakpoints[i]);
+			}
+		});
+	}
 }
 
 void i386_device::device_start()
@@ -3791,6 +3856,8 @@ void i386_device::device_reset()
 
 	m_CPL = 0;
 
+	m_auto_clear_RF = true;
+
 	CHANGE_PC(m_eip);
 }
 
@@ -3967,6 +4034,36 @@ void i386_device::execute_run()
 	while( m_cycles > 0 )
 	{
 		i386_check_irq_line();
+
+		//The LE and GE bits of DR7 aren't currently implemented because they could potentially require cycle-accurate emulation.
+		if((m_dr[7] & 0xff) != 0) //If all of the breakpoints are disabled, skip checking for instruction breakpoint hitting entirely.
+		for(int i = 0; i < 4; i++)
+		{
+			bool dri_enabled = (m_dr[7] & (1 << ((i << 1) + 1))) || (m_dr[7] & (1 << (i << 1))); //Check both local AND global enable bits for this breakpoint.
+			if(dri_enabled && !m_RF)
+			{
+				int breakpoint_type = (m_dr[7] >> (i << 2)) & 3;
+				int breakpoint_length = (m_dr[7] >> ((i << 2) + 2)) & 3;
+				if(breakpoint_type == 0)
+				{
+					uint32_t phys_addr = 0;
+					uint32_t error;
+					phys_addr = (m_cr[0] & (1 << 31)) ? translate_address(m_CPL, TRANSLATE_FETCH, &m_dr[i], &error) : m_dr[i];
+					if(breakpoint_length != 0) //Not one byte in length? logerror it, I have no idea how this works on real processors.
+					{
+						logerror("i386: Breakpoint length not 1 byte on an instruction breakpoint\n");
+					}
+					if(m_pc == phys_addr)
+					{
+						//The processor never automatically clears bits in DR6. It only sets them.
+						m_dr[6] |= 1 << i;
+						i386_trap(1,0,0);
+						break;
+					}
+				}
+			}
+		}
+
 		m_operand_size = m_sreg[CS].d;
 		m_xmm_operand_size = 0;
 		m_address_size = m_sreg[CS].d;
@@ -3997,6 +4094,7 @@ void i386_device::execute_run()
 			{
 				m_prev_eip = m_eip;
 				m_ext = 1;
+				m_dr[6] |= (1 << 14); //Set BS bit of DR6.
 				i386_trap(1,0,0);
 			}
 			if(m_lock && (m_opcode != 0xf0))
@@ -4007,6 +4105,8 @@ void i386_device::execute_run()
 			m_ext = 1;
 			i386_trap_with_error(e&0xffffffff,0,0,e>>32);
 		}
+		if(m_RF && m_auto_clear_RF) m_RF = 0;
+		if(!m_auto_clear_RF) m_auto_clear_RF = true;
 	}
 	m_tsc += (cycles - m_cycles);
 }
