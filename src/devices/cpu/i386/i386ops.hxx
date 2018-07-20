@@ -741,6 +741,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 				{
 					case 0: true_mask = 0xff; break;
 					case 1: true_mask = 0xffff; break;
+					//Case 2 is invalid on a real 386.
 					case 3: true_mask = 0xffffffff; break;
 				}
 				if(true_mask == 0)
@@ -800,6 +801,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 					{
 						case 0: true_mask = 0xff; break;
 						case 1: true_mask = 0xffff; break;
+						//Case 2 is invalid on a real 386.
 						case 3: true_mask = 0xffffffff; break;
 					}
 					if(true_mask == 0)
