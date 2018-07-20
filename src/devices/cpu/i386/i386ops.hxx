@@ -748,7 +748,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 					logerror("i386: Unknown breakpoint length value\n");
 				}
 				else if(breakpoint_type == 1) m_dr_breakpoints[dr] = m_program->install_write_tap(phys_addr, phys_addr + 3, "i386_debug_write_breakpoint",
-				[&, true_mask](offs_t offset, u32& data, u32 mem_mask)
+				[&, dr, true_mask](offs_t offset, u32& data, u32 mem_mask)
 				{
 					if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
 					{
@@ -757,7 +757,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 					}
 				}, m_dr_breakpoints[dr]);
 				else if(breakpoint_type == 3) m_dr_breakpoints[dr] = m_program->install_readwrite_tap(phys_addr, phys_addr + 3, "i386_debug_readwrite_breakpoint",
-				[&, true_mask](offs_t offset, u32& data, u32 mem_mask)
+				[&, dr, true_mask](offs_t offset, u32& data, u32 mem_mask)
 				{
 					if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
 					{
@@ -765,7 +765,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 						i386_trap(1,0,0);
 					}
 				},
-				[&, true_mask](offs_t offset, u32& data, u32 mem_mask)
+				[&, dr, true_mask](offs_t offset, u32& data, u32 mem_mask)
 				{
 					if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
 					{
@@ -807,7 +807,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 						logerror("i386: Unknown breakpoint length value\n");
 					}
 					else if(breakpoint_type == 1) m_dr_breakpoints[i] = m_program->install_write_tap(phys_addr, phys_addr + 3, 0, "i386_debug_write_breakpoint",
-					[&](offs_t offset, u32& data, u32 mem_mask)
+					[&, i, true_mask](offs_t offset, u32& data, u32 mem_mask)
 					{
 						if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
 						{
@@ -816,7 +816,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 						}
 					}, m_dr_breakpoints[i]);
 					else if(breakpoint_type == 3) m_dr_breakpoints[i] = m_program->install_readwrite_tap(phys_addr, phys_addr + 3, 0, "i386_debug_readwrite_breakpoint",
-					[&](offs_t offset, u32& data, u32 mem_mask)
+					[&, i, true_mask](offs_t offset, u32& data, u32 mem_mask)
 					{
 						if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
 						{
@@ -824,7 +824,7 @@ void i386_device::i386_mov_dr_r32()        // Opcode 0x0f 23
 							i386_trap(1,0,0);
 						}
 					},
-					[&](offs_t offset, u32& data, u32 mem_mask)
+					[&, i, true_mask](offs_t offset, u32& data, u32 mem_mask)
 					{
 						if(true_mask & make_bitmask<uint32_t>(m_program->data_width()))
 						{
