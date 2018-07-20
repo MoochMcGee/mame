@@ -738,7 +738,7 @@ void i386_device::i386_trap(int irq, int irq_gate, int trap_level)
 	if( !(PROTECTED_MODE) )
 	{
 		/* 16-bit */
-		PUSH16((oldflags & 0xffff) | (1 << 16)); //Faults always have the RF bit set in the saved flags register.
+		PUSH16(oldflags & 0xffff );
 		PUSH16(m_sreg[CS].selector );
 		if(irq == 3 || irq == 4 || irq == 9 || irq_gate == 1)
 			PUSH16(m_eip );
@@ -1068,7 +1068,7 @@ void i386_device::i386_trap(int irq, int irq_gate, int trap_level)
 			// this is ugly but the alternative is worse
 			if(type != 0x0e && type != 0x0f)  // if not 386 interrupt or trap gate
 			{
-				PUSH16((oldflags & 0xffff) | (1 << 16) ); //Faults always have the RF bit set in the saved flags register.
+				PUSH16(oldflags & 0xffff );
 				PUSH16(m_sreg[CS].selector );
 				if(irq == 3 || irq == 4 || irq == 9 || irq_gate == 1)
 					PUSH16(m_eip );
@@ -1077,7 +1077,7 @@ void i386_device::i386_trap(int irq, int irq_gate, int trap_level)
 			}
 			else
 			{
-				PUSH32((oldflags & 0x00ffffff) | (1 << 16) ); //Faults always have the RF bit set in the saved flags register.
+				PUSH32((oldflags & 0x00ffffff) | (1 << 16) ); //386 faults always have the RF bit set in the saved flags register.
 				PUSH32SEG(m_sreg[CS].selector );
 				if(irq == 3 || irq == 4 || irq == 9 || irq_gate == 1)
 					PUSH32(m_eip );
